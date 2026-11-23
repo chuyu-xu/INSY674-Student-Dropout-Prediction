@@ -2,6 +2,48 @@
 
 A team machine learning project for INSY674. **Current status:** model development, training-data cross-validation, and held-out evaluation are complete. The final evaluation was reproduced on 2026-10-28 from the saved model configuration; its scores and confusion matrix match the results reported below. Execution evidence and software versions are saved with the evaluation results. The saved ensemble training-CV macro F1 is 0.6516; it is distinct from the reported test macro F1 of 0.6549.
 
+## INSY 684: MLOps Extension (in progress)
+
+In INSY 684 we turn this model into an end-to-end ML system: orchestrated training,
+MLflow tracking and registry, a containerized API and frontend, and drift monitoring.
+The sections after this one document the INSY 674 model-development phase.
+
+**Current stage:** shared repository and CI. Docker, MLflow, Prefect, serving and
+monitoring will be added through feature-branch PRs.
+
+### Code layout
+
+```
+data/data.csv              raw dataset (semicolon-separated)
+src/dropout/data.py        loading + data validation
+src/dropout/features.py    feature set + preprocessing ("First Semester" scenario)
+src/dropout/train.py       minimal training script
+tests/                     unit tests
+.github/workflows/ci.yml   CI: lint + tests on every push and pull request
+```
+
+### Local setup
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows Git Bash: source .venv/Scripts/activate
+pip install -r requirements.txt -r requirements-dev.txt
+
+ruff check .                     # lint
+ruff format .                    # auto-format
+pytest                           # run tests
+PYTHONPATH=src python -m dropout.train
+```
+
+### Git workflow
+
+1. One feature branch per change, e.g. `feat/training-flow`, `fix/api-input-validation`.
+2. Open a PR describing what changed and how it was tested.
+3. A teammate other than the author reviews with real comments and approves.
+4. CI must pass before merging. Merge with a merge commit or rebase, not squash.
+
+Never commit secrets: keep them in `.env` (git-ignored) and use GitHub Actions secrets in CI.
+
 ## Project Objective
 
 This project investigates whether machine learning can identify students at risk of dropping out early enough to support university intervention. It predicts three academic statuses—Dropout, Enrolled, and Graduate—and examines the predictive value of academic performance and financial indicators.

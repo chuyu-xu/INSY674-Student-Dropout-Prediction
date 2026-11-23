@@ -1,0 +1,17 @@
+[project]
+name = "dropout"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+# INSY 674 notebooks and scripts are archived as-is; lint only new code.
+extend-exclude = ["*.ipynb", "insy674_partb_result"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B"]

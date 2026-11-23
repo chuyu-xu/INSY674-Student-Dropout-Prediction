@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# INSY 684: MLflow runs and model artifacts
+mlruns/
+mlartifacts/
+*.pkl
+*.joblib
