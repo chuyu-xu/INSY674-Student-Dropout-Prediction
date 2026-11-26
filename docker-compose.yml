@@ -1,0 +1,161 @@
+# Full stack (owner: F).
+#   cp .env.example .env
+#   docker compose up -d --build     start everything
+#   docker compose down               stop everything (add -v to delete data)
+#
+# Inject drift into the simulated traffic:
+#   DRIFT=true docker compose up -d simulator
+
+x-pipeline-image: &pipeline-image
+  build:
+    context: .
+    dockerfile: services/pipeline/Dockerfile
+  image: dropout-pipeline:local
+
+x-ml-env: &ml-env
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  PREFECT_API_URL: http://prefect:4200/api
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.17.2
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --artifacts-destination /mlflow/artifacts
+      --serve-artifacts
+    volumes:
+      - mlflow-data:/mlflow
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      retries: 10
+
+  prefect:
+    image: prefecthq/prefect:3.1.5-python3.11
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "4200:4200"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4200/api/health')"]
+      interval: 10s
+      retries: 10
+
+  trainer:
+    <<: *pipeline-image
+    command: ["python", "-m", "dropout.pipeline"]
+    environment:
+      <<: *ml-env
+    depends_on:
+      mlflow:
+        condition: service_healthy
+      prefect:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    image: dropout-api:local
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      LOG_PREDICTIONS: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      trainer:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      retries: 12
+
+  frontend:
+    build:
+      context: .
+      dockerfile: services/frontend/Dockerfile
+    image: dropout-frontend:local
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  monitor:
+    <<: *pipeline-image
+    command: ["python", "-m", "dropout.monitor"]
+    environment:
+      <<: *ml-env
+    depends_on:
+      api:
+        condition: service_healthy
+
+  simulator:
+    <<: *pipeline-image
+    command: ["python", "-m", "dropout.simulate", "--api-url", "http://api:8000"]
+    environment:
+      DRIFT: ${DRIFT:-false}
+      DRIFT_STRENGTH: ${DRIFT_STRENGTH:-1.0}
+      SIM_RATE: ${SIM_RATE:-5}
+      SIM_DURATION: ${SIM_DURATION:-900}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: "no"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - postgres
+
+volumes:
+  postgres-data:
+  mlflow-data:
+  grafana-data:
