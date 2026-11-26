@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -24,5 +25,40 @@ jobs:
       - name: Check formatting
         run: ruff format --check .
 
-      - name: Run tests
+      - name: Run unit tests
         run: pytest -v
+
+  integration:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Train a model file for the API container
+        run: PYTHONPATH=src python -m dropout.export_model --out models/model.joblib
+
+      - name: Build the API image
+        run: docker build -f services/api/Dockerfile -t dropout-api:test .
+
+      - name: Start the API container
+        run: >
+          docker run -d --name api -p 8000:8000
+          -v "$PWD/models:/models"
+          -e MODEL_PATH=/models/model.joblib
+          -e LOG_PREDICTIONS=false
+          dropout-api:test
+
+      - name: Run integration tests against the container
+        run: API_URL=http://localhost:8000 pytest -m integration -v
+
+      - name: Show API logs on failure
+        if: failure()
+        run: docker logs api
