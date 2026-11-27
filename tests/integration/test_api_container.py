@@ -8,6 +8,7 @@ import time
 
 import pytest
 import requests
+
 from dropout.schemas import EXAMPLE_STUDENT
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
