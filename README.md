@@ -79,6 +79,9 @@ where the drift monitor reads it.
 
 ### Run it locally
 
+> **Status:** the Docker stack (`docker-compose.yml`, `.env.example`) is being added in the
+> Docker/CD PR. The commands below will work once that PR and the service PRs are merged.
+
 Requirements: Docker Desktop.
 
 ```bash
