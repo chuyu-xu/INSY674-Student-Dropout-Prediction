@@ -2,7 +2,8 @@ numpy==1.26.4
 pandas==2.2.3
 scikit-learn==1.5.2
 xgboost==3.2.0
-mlflow-skinny==2.17.2
+# Full MLflow includes Alembic for the SQLite registry integration test.
+mlflow==2.17.2
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 prometheus-client==0.21.0

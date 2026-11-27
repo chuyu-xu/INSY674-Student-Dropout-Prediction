@@ -41,6 +41,7 @@ def test_api_image_registry_and_postgres(registered_ensemble):
         check=True,
     )
     try:
+        last_error = "API did not respond"
         for _ in range(60):
             try:
                 with urllib.request.urlopen(
@@ -48,10 +49,14 @@ def test_api_image_registry_and_postgres(registered_ensemble):
                 ) as r:
                     assert json.load(r)["model_version"] == version
                 break
-            except (urllib.error.URLError, TimeoutError):
+            except urllib.error.HTTPError as exc:
+                last_error = f"HTTP {exc.code}: {exc.read().decode()}"
+                time.sleep(1)
+            except (urllib.error.URLError, TimeoutError) as exc:
+                last_error = str(exc)
                 time.sleep(1)
         else:
-            pytest.fail("API image could not load the registered ensemble")
+            pytest.fail(f"API image could not load registered ensemble: {last_error}")
         request = urllib.request.Request(
             "http://localhost:8000/predict",
             data=json.dumps(
