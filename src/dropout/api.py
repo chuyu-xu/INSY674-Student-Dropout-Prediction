@@ -74,9 +74,11 @@ class ModelStore:
 
         mlflow.set_tracking_uri(config.MLFLOW_TRACKING_URI)
         client = MlflowClient()
-        version = client.get_model_version_by_alias(
-            config.MODEL_NAME, config.MODEL_ALIAS
-        ).version
+        version = str(
+            client.get_model_version_by_alias(
+                config.MODEL_NAME, config.MODEL_ALIAS
+            ).version
+        )
         if version != self._version:
             uri = f"models:/{config.MODEL_NAME}/{version}"
             self._model, self._version = mlflow.sklearn.load_model(uri), version
