@@ -1,3 +1,16 @@
-pandas>=2.0
-numpy>=1.24
-scikit-learn>=1.3
+# Pinned so that the trainer and the API load the same pickled model.
+numpy==1.26.4
+pandas==2.2.3
+scikit-learn==1.5.2
+xgboost==3.2.0
+mlflow==2.17.2
+prefect==3.1.5
+evidently==0.4.40
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+prometheus-client==0.21.0
+psycopg[binary]==3.2.3
+SQLAlchemy==2.0.36
+requests==2.32.3
+flask==3.1.0
+PyYAML==6.0.2
