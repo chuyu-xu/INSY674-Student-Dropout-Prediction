@@ -102,9 +102,9 @@ class PredictionLogger:
     def __init__(self) -> None:
         self._engine = None
         if config.LOG_PREDICTIONS and config.DATABASE_URL:
-            from dropout.db import create_tables, get_engine
-
             try:
+                from dropout.db import create_tables, get_engine
+
                 engine = get_engine(config.DATABASE_URL)
                 create_tables(engine)
                 self._engine = engine
@@ -115,9 +115,9 @@ class PredictionLogger:
     def log(self, **record) -> None:
         if self._engine is None:
             return
-        from dropout.db import log_prediction
-
         try:
+            from dropout.db import log_prediction
+
             log_prediction(self._engine, **record)
         except Exception:
             ERRORS.labels(type="logging").inc()

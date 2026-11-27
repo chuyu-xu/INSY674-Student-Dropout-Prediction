@@ -7,6 +7,20 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: dropout_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d dropout_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://test:test@localhost:5432/dropout_test
     steps:
       - uses: actions/checkout@v4
 
@@ -26,3 +40,9 @@ jobs:
 
       - name: Run tests
         run: pytest -v
+
+      - name: Build API image
+        run: docker build -t dropout-api:test -f services/api/Dockerfile .
+
+      - name: Test registered ensemble and PostgreSQL in API container
+        run: pytest -v -m integration tests/integration/test_registered_api.py
