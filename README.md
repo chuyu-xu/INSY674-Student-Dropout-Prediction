@@ -2,47 +2,158 @@
 
 A team machine learning project for INSY674. **Current status:** model development, training-data cross-validation, and held-out evaluation are complete. The final evaluation was reproduced on 2026-10-28 from the saved model configuration; its scores and confusion matrix match the results reported below. Execution evidence and software versions are saved with the evaluation results. The saved ensemble training-CV macro F1 is 0.6516; it is distinct from the reported test macro F1 of 0.6549.
 
-## INSY 684: MLOps Extension (in progress)
+## INSY 684: MLOps System
 
-In INSY 684 we turn this model into an end-to-end ML system: orchestrated training,
-MLflow tracking and registry, a containerized API and frontend, and drift monitoring.
-The sections after this one document the INSY 674 model-development phase.
+In INSY 684 we turn the INSY 674 dropout model into an end-to-end ML system:
+an orchestrated training pipeline with experiment tracking and a model
+registry, a containerized API and web frontend, and monitoring that detects
+data drift and triggers retraining. The sections after this one document the
+INSY 674 model-development phase.
 
-**Current stage:** shared repository and CI. Docker, MLflow, Prefect, serving and
-monitoring will be added through feature-branch PRs.
+### Problem
 
-### Code layout
+Academic advisors want to know early which students are at risk of dropping
+out. The model predicts **Dropout / Enrolled / Graduate** from enrollment
+information and first-semester results. In production the incoming student
+population can change (for example, a weaker cohort), so the system must
+notice when inputs drift away from the training data and retrain.
 
+### Architecture
+
+```mermaid
+flowchart LR
+    subgraph TRAIN[Training]
+        DATA[(data/data.csv)] --> FLOW[Prefect flow<br/>dropout.pipeline]
+        FLOW -->|params, metrics, models| MLF[MLflow tracking server]
+        MLF --> REG[(MLflow Model Registry<br/>dropout-model @champion)]
+        PREF[Prefect server UI] -.-|flow runs| FLOW
+    end
+
+    subgraph SERVE[Serving]
+        USER([Advisor]) --> FE[Frontend<br/>Flask container]
+        FE -->|POST /predict| API[Model API<br/>FastAPI container]
+        REG -->|load champion| API
+    end
+
+    subgraph MONITOR[Monitoring]
+        SIM[Traffic simulator<br/>optional drift] -->|POST /predict| API
+        API -->|log predictions| PG[(PostgreSQL)]
+        MON[Drift monitor<br/>Evidently] -->|read predictions| PG
+        MON -->|drift + quality metrics| PG
+        MON -->|drift detected: retrain| FLOW
+        PROM[Prometheus] -->|scrape /metrics| API
+        GRAF[Grafana<br/>dashboards + alerts] --> PROM
+        GRAF --> PG
+    end
+
+    subgraph CICD[CI/CD]
+        PR[Pull request] --> CI[GitHub Actions CI<br/>ruff, pytest, integration test]
+        CI -->|merge to main| CD[CD: build images]
+        CD --> GHCR[(GitHub Container Registry)]
+    end
 ```
-data/data.csv              raw dataset (semicolon-separated)
-src/dropout/data.py        loading + data validation
-src/dropout/features.py    feature set + preprocessing ("First Semester" scenario)
-src/dropout/train.py       minimal training script
-tests/                     unit tests
-.github/workflows/ci.yml   CI: lint + tests on every push and pull request
+
+A user's request goes **Frontend → Model API → registered model**, and the
+response comes back the same way. Every prediction is logged to PostgreSQL,
+where the drift monitor reads it.
+
+### Tools
+
+| Tool | What it does here | Where |
+|---|---|---|
+| Prefect | Runs training as a flow: load → validate → train → log → register | `src/dropout/pipeline.py` |
+| MLflow | Tracks every training run (params, metrics, model) and holds the registry | `src/dropout/tracking.py` |
+| FastAPI | Serves `dropout-model@champion`, validates input, exposes `/metrics` | `src/dropout/api.py` |
+| Flask | Web form that calls the API and shows a readable result | `services/frontend/` |
+| PostgreSQL | Stores logged predictions and drift metrics | `infra/postgres/init.sql` |
+| Evidently | Computes data drift and model quality from logged predictions | `src/dropout/drift.py`, `monitor.py` |
+| Traffic simulator | Sends unseen test students to the API, with an option to inject drift | `src/dropout/simulate.py` |
+| Prometheus | Collects request count, latency and errors from the API | `monitoring/prometheus/` |
+| Grafana | Dashboards and alerts over Prometheus and Postgres, saved as code | `monitoring/grafana/` |
+| Docker Compose | Starts and stops the whole stack | `docker-compose.yml` |
+| GitHub Actions | CI: lint + unit tests + integration test on every PR. CD: build and publish images | `.github/workflows/` |
+
+### Run it locally
+
+Requirements: Docker Desktop.
+
+```bash
+cp .env.example .env              # then change the passwords in .env
+docker compose up -d --build      # start everything
+docker compose ps                 # check that services are healthy
 ```
 
-### Local setup
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:8080 |
+| Model API docs | http://localhost:8000/docs |
+| MLflow | http://localhost:5000 |
+| Prefect | http://localhost:4200 |
+| Prometheus | http://localhost:9090 |
+| Grafana (login from `.env`) | http://localhost:3000 |
+
+The `trainer` container runs the training flow once and registers the model;
+the API starts after it finishes. The simulator then sends normal traffic.
+
+**Inject drift:**
+
+```bash
+DRIFT=true docker compose up -d simulator
+```
+
+Within a few minutes the Grafana drift panel rises above the 0.2 threshold,
+the **Data drift detected** alert fires, and the monitor triggers a retraining
+run (visible in Prefect and as a new model version in MLflow).
+
+**Stop everything:**
+
+```bash
+docker compose down        # stop
+docker compose down -v     # stop and delete all stored data
+```
+
+### Development
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows Git Bash: source .venv/Scripts/activate
 pip install -r requirements.txt -r requirements-dev.txt
 
-ruff check .                     # lint
-ruff format .                    # auto-format
-pytest                           # run tests
-PYTHONPATH=src python -m dropout.train
+ruff check . && ruff format --check .   # lint
+pytest                                  # unit tests
+PYTHONPATH=src python -m dropout.tracking   # train + log to a local MLflow (mlflow.db)
+mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
+
+### Tests
+
+| Test | What it checks |
+|---|---|
+| `test_data.py` | Required columns present, no missing or unknown target |
+| `test_features.py` | A known input produces the expected engineered features |
+| `test_model.py` | The model beats a majority-class baseline; probabilities are valid |
+| `test_sensible_predictions.py` | Passing more courses or higher grades lowers dropout risk |
+| `test_tracking.py` | Runs are logged and the final INSY 674 ensemble is registered as champion |
+| `test_pipeline.py` | Incomplete feedback rows are dropped before retraining |
+| `test_api.py` | Valid input gets a prediction; bad input gets a clear 422; metrics exposed |
+| `test_frontend.py` | The form calls the API and shows results or friendly errors |
+| `test_drift.py` | Injected drift is detected; retraining respects the cooldown |
+| `test_monitoring_config.py` | Dashboards and alerts match the monitor's drift threshold |
+| `integration/test_api_container.py` | Starts the API container in CI and sends it real requests |
+
+### Monitoring screenshots
+
+_To be added: dashboard under normal traffic, and after drift is injected._
 
 ### Git workflow
 
-1. One feature branch per change, e.g. `feat/training-flow`, `fix/api-input-validation`.
+1. One feature branch per change, e.g. `feature/training-flow`.
 2. Open a PR describing what changed and how it was tested.
 3. A teammate other than the author reviews with real comments and approves.
 4. CI must pass before merging. Merge with a merge commit or rebase, not squash.
 
-Never commit secrets: keep them in `.env` (git-ignored) and use GitHub Actions secrets in CI.
+Never commit secrets: keep them in `.env` (git-ignored) and use GitHub Actions
+secrets in CI.
 
 ## Project Objective
 
