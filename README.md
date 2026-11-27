@@ -10,6 +10,10 @@ registry, a containerized API and web frontend, and monitoring that detects
 data drift and triggers retraining. The sections after this one document the
 INSY 674 model-development phase.
 
+**Current stage:** the shared repository, CI, and MLflow experiment tracking and
+model registry are in place. Docker, Prefect, serving, and monitoring are being
+added through feature-branch PRs.
+
 ### Problem
 
 Academic advisors want to know early which students are at risk of dropping
@@ -124,6 +128,59 @@ pytest                                  # unit tests
 PYTHONPATH=src python -m dropout.tracking   # train + log to a local MLflow (mlflow.db)
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
+
+### MLflow experiment tracking and model registry (Role D)
+
+Role D adds reproducible experiment tracking and model registration in
+[`src/dropout/tracking.py`](src/dropout/tracking.py). The workflow trains eight
+candidate configurations: three Logistic Regression variants, two Random
+Forest variants, tuned Gradient Boosting, tuned XGBoost, and the archived INSY
+674 soft-voting ensemble. The ensemble combines XGBoost, Gradient Boosting, and
+Logistic Regression using the saved INSY 674 hyperparameters.
+
+Each MLflow run records:
+
+- model and training parameters;
+- five-fold cross-validation macro F1 mean and standard deviation;
+- held-out macro F1, accuracy, balanced accuracy, and dropout recall;
+- the fitted sklearn pipeline, model signature, and input example; and
+- the run trigger and training-row counts.
+
+Run the experiments from the repository root:
+
+```bash
+MLFLOW_TRACKING_URI=sqlite:///mlflow.db PYTHONPATH=src python -m dropout.tracking
+```
+
+Start the local MLflow interface in a second terminal:
+
+```bash
+mlflow ui --backend-store-uri sqlite:///mlflow.db --host 127.0.0.1 --port 5000
+```
+
+Open `http://127.0.0.1:5000` to inspect the runs and model registry. The workflow
+reports the highest cross-validation score for comparison without using the
+test set for model selection. For the course deliverable, it registers the
+required final soft-voting ensemble as `dropout-model` and assigns the
+`champion` alias. Downstream services can load it with the model URI
+`models:/dropout-model@champion`.
+
+Latest local execution results:
+
+| Run | CV macro F1 | Test macro F1 |
+|---|---:|---:|
+| `rf_200_depth10` | 0.6573 | 0.6445 |
+| `rf_400_full` | 0.6550 | 0.6335 |
+| `soft_voting_ensemble` | 0.6505 | 0.6549 |
+| `logreg_C0.0448` | 0.6476 | 0.6664 |
+| `xgboost_tuned` | 0.6386 | 0.6161 |
+| `logreg_C0.01` | 0.6383 | 0.6551 |
+| `logreg_C1` | 0.6381 | 0.6526 |
+| `gradient_boosting` | 0.6341 | 0.6279 |
+
+![MLflow experiment runs](docs/images/mlflow-experiments.png)
+
+![MLflow registered champion model](docs/images/mlflow-model-registry.png)
 
 ### Tests
 

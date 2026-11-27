@@ -4,8 +4,11 @@ version = "0.1.0"
 requires-python = ">=3.10"
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "services/frontend"]
 testpaths = ["tests"]
+# Integration tests need a running API container; CI runs them with -m integration.
+addopts = "-m 'not integration'"
+markers = ["integration: needs the API container running at API_URL"]
 
 [tool.ruff]
 line-length = 88
@@ -15,3 +18,7 @@ extend-exclude = ["*.ipynb", "insy674_partb_result"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependencies are declared as argument defaults by design.
+extend-immutable-calls = ["fastapi.Depends"]
