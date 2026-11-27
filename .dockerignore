@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+mlruns
+mlartifacts
+mlflow.db
+models
+*.ipynb
+evaluation_results
+insy674_partb_result
+*.zip
+.env

@@ -224,3 +224,7 @@ mlruns/
 mlartifacts/
 *.pkl
 *.joblib
+
+# Local MLflow store and exported models
+mlflow.db
+models/
